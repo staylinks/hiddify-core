@@ -58,6 +58,17 @@ var (
 	OutboundMainDetour       = OutboundSelectTag
 	OutboundWARPConfigDetour = OutboundDirectFragmentTag
 	PredefinedOutboundTags   = []string{OutboundDirectTag, OutboundBypassTag, OutboundSelectTag, OutboundURLTestTag, OutboundDNSTag, OutboundDirectFragmentTag, WARPConfigTag}
+	// Google 系域名必须在地区分流前走远程 DNS 和代理，避免 DNS 污染后命中 geoip-cn 直连。
+	googleDomainSuffixes = []string{
+		"google.com",
+		"googleapis.com",
+		"gstatic.com",
+		"googleusercontent.com",
+		"youtube.com",
+		"ytimg.com",
+		"ggpht.com",
+		"googlevideo.com",
+	}
 )
 
 // TODO include selectors
@@ -874,6 +885,8 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 			DNSRuleAction: rejectDnsAction,
 		})
 	}
+	dnsRules = append(dnsRules, googleRemoteDNSRule(hopt))
+	routeRules = append(routeRules, googleProxyRouteRule())
 	if hopt.Region != "other" {
 		dnsRules = append(dnsRules, option.DefaultDNSRule{
 			RawDefaultDNSRule: option.RawDefaultDNSRule{
@@ -1102,6 +1115,40 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 	}
 	// }
 	return nil
+}
+
+func googleRemoteDNSRule(hopt *HiddifyOptions) option.DefaultDNSRule {
+	return option.DefaultDNSRule{
+		RawDefaultDNSRule: option.RawDefaultDNSRule{
+			DomainSuffix: googleDomainSuffixes,
+		},
+		DNSRuleAction: option.DNSRuleAction{
+			Action: C.RuleActionTypeRoute,
+			RouteOptions: option.DNSRouteActionOptions{
+				Server:         DNSMultiRemoteTag,
+				Strategy:       hopt.RemoteDnsDomainStrategy,
+				RewriteTTL:     &DEFAULT_DNS_TTL,
+				BypassIfFailed: false,
+			},
+		},
+	}
+}
+
+func googleProxyRouteRule() option.Rule {
+	return option.Rule{
+		Type: C.RuleTypeDefault,
+		DefaultOptions: option.DefaultRule{
+			RawDefaultRule: option.RawDefaultRule{
+				DomainSuffix: googleDomainSuffixes,
+			},
+			RuleAction: option.RuleAction{
+				Action: C.RuleActionTypeRoute,
+				RouteOptions: option.RouteActionOptions{
+					Outbound: OutboundMainDetour,
+				},
+			},
+		},
+	}
 }
 
 func patchHiddifyWarpFromConfig(out *option.Outbound, opt HiddifyOptions) *option.Outbound {
