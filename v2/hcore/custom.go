@@ -8,7 +8,7 @@ import (
 func errorWrapper(state MessageType, err error) (*CoreInfoResponse, error) {
 	Log(LogLevel_FATAL, LogType_CORE, err.Error())
 	StopAndAlert(MessageType_UNEXPECTED_ERROR, err.Error())
-	return SetCoreStatus(CoreStates_STOPPED, state, err.Error()), err
+	return SetCoreStatus(CoreStates_STOPPED, state, err.Error()), nil
 }
 
 func StopAndAlert(msgType MessageType, message string) {
