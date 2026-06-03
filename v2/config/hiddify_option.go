@@ -168,6 +168,10 @@ func DefaultHiddifyOptions() *HiddifyOptions {
 	}
 }
 
+func shouldEnableFakeDNS(opt *HiddifyOptions) bool {
+	return opt.EnableFakeDNS || opt.EnableTun
+}
+
 // Recursively set the fields marked as overridable
 func setOverridableFields(v reflect.Value, t reflect.Type, overrides map[string]interface{}) {
 	for i := 0; i < v.NumField(); i++ {

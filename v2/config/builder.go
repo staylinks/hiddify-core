@@ -1009,7 +1009,7 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 		// },
 	}
 	// if opt.EnableDNSRouting {
-	if hopt.EnableFakeDNS {
+	if shouldEnableFakeDNS(hopt) {
 		// inbounds := []string{InboundTUNTag}
 		// for _, inp := range options.Inbounds {
 		// 	if strings.Contains(inp.Tag, InboundDirectTag) || strings.Contains(inp.Tag, InboundRedirect) || strings.Contains(inp.Tag, InboundTProxy) {
