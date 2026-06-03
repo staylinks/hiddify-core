@@ -1,0 +1,132 @@
+name: Staylink Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Configure git for HTTPS submodules
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: false
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - name: Setup NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r28
+
+      - name: Build Android
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+        run: make android
+
+      - name: Package
+        working-directory: bin
+        run: tar -czvf hiddify-lib-android.tar.gz hiddify-core.aar
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hiddify-lib-android
+          path: bin/hiddify-lib-android.tar.gz
+          retention-days: 7
+
+  windows:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Configure git for HTTPS submodules
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: false
+
+      - name: Setup MinGW
+        uses: egor-tensin/setup-mingw@v2
+        with:
+          platform: x64
+
+      - name: Build Windows
+        run: make windows-amd64
+
+      - name: Package
+        working-directory: bin
+        run: tar -czvf hiddify-lib-windows-amd64.tar.gz hiddify-core.dll libcronet.dll HiddifyCli.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hiddify-lib-windows-amd64
+          path: bin/hiddify-lib-windows-amd64.tar.gz
+          retention-days: 7
+
+  release:
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          pattern: hiddify-lib-*
+          path: bin/
+
+      - name: List artifacts
+        run: ls -la bin/
+
+      - name: Delete existing draft assets
+        uses: 8Mi-Tech/delete-release-assets-action@main
+        continue-on-error: true
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: draft
+          deleteOnlyFromDrafts: false
+
+      - name: Update draft release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: bin/*.tar.gz
+          name: draft
+          tag_name: draft
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
