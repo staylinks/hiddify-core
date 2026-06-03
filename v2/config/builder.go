@@ -885,7 +885,6 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 			DNSRuleAction: rejectDnsAction,
 		})
 	}
-	dnsRules = append(dnsRules, googleRemoteDNSRule(hopt))
 	routeRules = append(routeRules, googleProxyRouteRule())
 	if hopt.Region != "other" {
 		dnsRules = append(dnsRules, option.DefaultDNSRule{
