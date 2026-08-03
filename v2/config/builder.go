@@ -58,9 +58,8 @@ var (
 	OutboundMainDetour       = OutboundSelectTag
 	OutboundWARPConfigDetour = OutboundDirectFragmentTag
 	PredefinedOutboundTags   = []string{OutboundDirectTag, OutboundBypassTag, OutboundSelectTag, OutboundURLTestTag, OutboundDNSTag, OutboundDirectFragmentTag, WARPConfigTag}
-	// Google 系域名必须在地区分流前走远程 DNS 和代理，避免 DNS 污染后命中 geoip-cn 直连。
-	// 含 google.cn / gstatic.cn 等：region=cn 时 DomainSuffix=.cn → direct 会截走这些域名，
-	// 导致 google.com 跳转到 google.cn 后变成国内直连（中国版 Google）。
+	// Google 系域名必须在地区分流前走代理，避免命中 .cn 直连或污染 IP 直连。
+	// google.cn 等一并纳入：即便发生跳转也不会再被 DomainSuffix=.cn → direct 截走。
 	googleDomainSuffixes = []string{
 		"google.com",
 		"google.cn",
@@ -970,12 +969,15 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 			},
 		})
 
+		// 国内直连只用 geosite，不用 geoip。
+		// GFW 常把 google.com 等污染成国内 IP；若再匹配 geoip-cn → direct，
+		// 出口变成国内地址，Google 会 302 到 google.cn（中国版）。
+		// geosite 按域名匹配，与 FakeDNS/SNI 还原配合，避免这条污染直连路径。
 		routeRules = append(routeRules, option.Rule{
 			Type: C.RuleTypeDefault,
 			DefaultOptions: option.DefaultRule{
 				RawDefaultRule: option.RawDefaultRule{
 					RuleSet: []string{
-						"geoip-" + hopt.Region,
 						"geosite-" + hopt.Region,
 					},
 				},
