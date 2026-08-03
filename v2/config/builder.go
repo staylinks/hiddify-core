@@ -887,20 +887,27 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 	}
 	routeRules = append(routeRules, googleProxyRouteRule())
 	if hopt.Region != "other" {
-		dnsRules = append(dnsRules, option.DefaultDNSRule{
-			RawDefaultDNSRule: option.RawDefaultDNSRule{
-				DomainSuffix: []string{"." + hopt.Region},
-			},
-			DNSRuleAction: option.DNSRuleAction{
-				Action: C.RuleActionTypeRoute,
-				RouteOptions: option.DNSRouteActionOptions{
-					Server:         DNSMultiDirectTag,
-					Strategy:       hopt.DirectDnsDomainStrategy,
-					RewriteTTL:     &DEFAULT_DNS_TTL,
-					BypassIfFailed: false,
+		// TUN/FakeDNS：客户端 A/AAAA 由 FakeDNS 兜底，不再把地区域名强制送到 dns-direct。
+		// 否则 baidu.com 等 geosite-cn 站点在直连 DNS 失败时完全不可达（BypassIfFailed=false），
+		// 且无法回退 FakeDNS。路由侧仍走 direct；真实 IP 由 DefaultDomainResolver(dns-direct) 在拨号时解析。
+		// systemProxy 等非 FakeDNS 模式保留原 DNS 分流（与 Windows 默认行为一致）。
+		skipRegionalDirectDNS := shouldEnableFakeDNS(hopt)
+		if !skipRegionalDirectDNS {
+			dnsRules = append(dnsRules, option.DefaultDNSRule{
+				RawDefaultDNSRule: option.RawDefaultDNSRule{
+					DomainSuffix: []string{"." + hopt.Region},
 				},
-			},
-		})
+				DNSRuleAction: option.DNSRuleAction{
+					Action: C.RuleActionTypeRoute,
+					RouteOptions: option.DNSRouteActionOptions{
+						Server:         DNSMultiDirectTag,
+						Strategy:       hopt.DirectDnsDomainStrategy,
+						RewriteTTL:     &DEFAULT_DNS_TTL,
+						BypassIfFailed: false,
+					},
+				},
+			})
+		}
 		routeRules = append(routeRules, option.Rule{
 			Type: C.RuleTypeDefault,
 			DefaultOptions: option.DefaultRule{
@@ -916,23 +923,25 @@ func setRoutingOptions(options *option.Options, hopt *HiddifyOptions) error {
 			},
 		})
 
-		dnsRules = append(dnsRules, option.DefaultDNSRule{
-			RawDefaultDNSRule: option.RawDefaultDNSRule{
+		if !skipRegionalDirectDNS {
+			dnsRules = append(dnsRules, option.DefaultDNSRule{
+				RawDefaultDNSRule: option.RawDefaultDNSRule{
 
-				RuleSet: []string{
-					"geosite-" + hopt.Region,
+					RuleSet: []string{
+						"geosite-" + hopt.Region,
+					},
 				},
-			},
-			DNSRuleAction: option.DNSRuleAction{
-				Action: C.RuleActionTypeRoute,
-				RouteOptions: option.DNSRouteActionOptions{
-					Server:         DNSMultiDirectTag,
-					Strategy:       hopt.DirectDnsDomainStrategy,
-					RewriteTTL:     &DEFAULT_DNS_TTL,
-					BypassIfFailed: false,
+				DNSRuleAction: option.DNSRuleAction{
+					Action: C.RuleActionTypeRoute,
+					RouteOptions: option.DNSRouteActionOptions{
+						Server:         DNSMultiDirectTag,
+						Strategy:       hopt.DirectDnsDomainStrategy,
+						RewriteTTL:     &DEFAULT_DNS_TTL,
+						BypassIfFailed: false,
+					},
 				},
-			},
-		})
+			})
+		}
 
 		rulesets = append(rulesets, option.RuleSet{
 			Type:   C.RuleSetTypeRemote,
