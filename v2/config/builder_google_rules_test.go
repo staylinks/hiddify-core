@@ -29,28 +29,86 @@ func TestGoogleRulesPrecedeRegionalDirectRules(t *testing.T) {
 	}
 
 	googleRouteIndex := -1
-	regionRouteIndex := -1
+	cnSuffixDirectIndex := -1
+	geositeDirectIndex := -1
 	for i, rule := range options.Route.Rules {
 		defaultRule := rule.DefaultOptions
 		if testContains(defaultRule.DomainSuffix, "google.com") &&
+			testContains(defaultRule.DomainSuffix, "google.cn") &&
 			defaultRule.RouteOptions.Outbound == OutboundMainDetour {
 			googleRouteIndex = i
 		}
-		if testContains(defaultRule.RuleSet, "geoip-cn") &&
-			testContains(defaultRule.RuleSet, "geosite-cn") &&
+		if testContains(defaultRule.DomainSuffix, ".cn") &&
 			defaultRule.RouteOptions.Outbound == OutboundDirectTag {
-			regionRouteIndex = i
+			cnSuffixDirectIndex = i
+		}
+		if testContains(defaultRule.RuleSet, "geosite-cn") &&
+			defaultRule.RouteOptions.Outbound == OutboundDirectTag &&
+			!testContains(defaultRule.RuleSet, "geoip-cn") {
+			geositeDirectIndex = i
+		}
+		// 回归：地区直连不得再捆绑 geoip-cn（污染 IP 会把 google.com 送去国内出口并 302 到 google.cn）
+		if testContains(defaultRule.RuleSet, "geoip-cn") &&
+			defaultRule.RouteOptions.Outbound == OutboundDirectTag {
+			t.Fatalf("route rule %d must not use geoip-cn → direct (DNS pollution sends Google to China exit → redirect to google.cn)", i)
 		}
 	}
 
 	if googleRouteIndex == -1 {
-		t.Fatal("missing Google route rule to proxy detour")
+		t.Fatal("missing Google route rule to proxy detour (must include google.com and google.cn)")
 	}
-	if regionRouteIndex == -1 {
-		t.Fatal("missing cn regional direct route rule")
+	if cnSuffixDirectIndex == -1 {
+		t.Fatal("missing DomainSuffix=.cn → direct route rule")
 	}
-	if googleRouteIndex >= regionRouteIndex {
-		t.Fatalf("Google route rule index %d must precede regional direct route index %d", googleRouteIndex, regionRouteIndex)
+	if geositeDirectIndex == -1 {
+		t.Fatal("missing geosite-cn-only → direct route rule")
+	}
+	if googleRouteIndex >= cnSuffixDirectIndex {
+		t.Fatalf("Google route rule index %d must precede .cn direct route index %d", googleRouteIndex, cnSuffixDirectIndex)
+	}
+	if googleRouteIndex >= geositeDirectIndex {
+		t.Fatalf("Google route rule index %d must precede geosite-cn direct route index %d", googleRouteIndex, geositeDirectIndex)
+	}
+}
+
+func TestGoogleCnForcedProxyDomains(t *testing.T) {
+	required := []string{"google.cn", "googleapis.cn", "gstatic.cn", "google.com.hk"}
+	for _, d := range required {
+		if !testContains(googleDomainSuffixes, d) {
+			t.Fatalf("googleDomainSuffixes missing %q", d)
+		}
+	}
+}
+
+func TestCnRegionalDirectUsesGeositeOnlyNotGeoip(t *testing.T) {
+	hopt := DefaultHiddifyOptions()
+	hopt.Region = "cn"
+	hopt.EnableTun = true
+
+	options := option.Options{}
+	staticIPs := map[string][]string{}
+	if err := setDns(&options, hopt, &staticIPs); err != nil {
+		t.Fatalf("setDns() error = %v", err)
+	}
+	if err := setRoutingOptions(&options, hopt); err != nil {
+		t.Fatalf("setRoutingOptions() error = %v", err)
+	}
+
+	foundGeositeOnly := false
+	for _, rule := range options.Route.Rules {
+		d := rule.DefaultOptions
+		if d.RouteOptions.Outbound != OutboundDirectTag {
+			continue
+		}
+		if testContains(d.RuleSet, "geoip-cn") {
+			t.Fatal("cn regional direct must not include geoip-cn")
+		}
+		if testContains(d.RuleSet, "geosite-cn") && len(d.RuleSet) == 1 {
+			foundGeositeOnly = true
+		}
+	}
+	if !foundGeositeOnly {
+		t.Fatal("expected a direct rule that matches only geosite-cn")
 	}
 }
 
