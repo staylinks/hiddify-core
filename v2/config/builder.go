@@ -59,10 +59,16 @@ var (
 	OutboundWARPConfigDetour = OutboundDirectFragmentTag
 	PredefinedOutboundTags   = []string{OutboundDirectTag, OutboundBypassTag, OutboundSelectTag, OutboundURLTestTag, OutboundDNSTag, OutboundDirectFragmentTag, WARPConfigTag}
 	// Google 系域名必须在地区分流前走远程 DNS 和代理，避免 DNS 污染后命中 geoip-cn 直连。
+	// 含 google.cn / gstatic.cn 等：region=cn 时 DomainSuffix=.cn → direct 会截走这些域名，
+	// 导致 google.com 跳转到 google.cn 后变成国内直连（中国版 Google）。
 	googleDomainSuffixes = []string{
 		"google.com",
+		"google.cn",
+		"google.com.hk",
 		"googleapis.com",
+		"googleapis.cn",
 		"gstatic.com",
+		"gstatic.cn",
 		"googleusercontent.com",
 		"youtube.com",
 		"ytimg.com",
