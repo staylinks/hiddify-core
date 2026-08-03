@@ -29,12 +29,18 @@ func TestGoogleRulesPrecedeRegionalDirectRules(t *testing.T) {
 	}
 
 	googleRouteIndex := -1
+	cnSuffixDirectIndex := -1
 	regionRouteIndex := -1
 	for i, rule := range options.Route.Rules {
 		defaultRule := rule.DefaultOptions
 		if testContains(defaultRule.DomainSuffix, "google.com") &&
+			testContains(defaultRule.DomainSuffix, "google.cn") &&
 			defaultRule.RouteOptions.Outbound == OutboundMainDetour {
 			googleRouteIndex = i
+		}
+		if testContains(defaultRule.DomainSuffix, ".cn") &&
+			defaultRule.RouteOptions.Outbound == OutboundDirectTag {
+			cnSuffixDirectIndex = i
 		}
 		if testContains(defaultRule.RuleSet, "geoip-cn") &&
 			testContains(defaultRule.RuleSet, "geosite-cn") &&
@@ -44,13 +50,28 @@ func TestGoogleRulesPrecedeRegionalDirectRules(t *testing.T) {
 	}
 
 	if googleRouteIndex == -1 {
-		t.Fatal("missing Google route rule to proxy detour")
+		t.Fatal("missing Google route rule to proxy detour (must include google.com and google.cn)")
+	}
+	if cnSuffixDirectIndex == -1 {
+		t.Fatal("missing DomainSuffix=.cn → direct route rule")
 	}
 	if regionRouteIndex == -1 {
 		t.Fatal("missing cn regional direct route rule")
 	}
+	if googleRouteIndex >= cnSuffixDirectIndex {
+		t.Fatalf("Google route rule index %d must precede .cn direct route index %d (else google.cn is hijacked to direct)", googleRouteIndex, cnSuffixDirectIndex)
+	}
 	if googleRouteIndex >= regionRouteIndex {
 		t.Fatalf("Google route rule index %d must precede regional direct route index %d", googleRouteIndex, regionRouteIndex)
+	}
+}
+
+func TestGoogleCnForcedProxyDomains(t *testing.T) {
+	required := []string{"google.cn", "googleapis.cn", "gstatic.cn", "google.com.hk"}
+	for _, d := range required {
+		if !testContains(googleDomainSuffixes, d) {
+			t.Fatalf("googleDomainSuffixes missing %q: region=cn .cn-direct would capture it after google.com→google.cn redirect", d)
+		}
 	}
 }
 
