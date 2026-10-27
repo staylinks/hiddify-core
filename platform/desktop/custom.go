@@ -11,6 +11,7 @@ import (
 	// "os"
 	// "os/signal"
 
+	"errors"
 	"runtime"
 
 	// "syscall"
@@ -70,10 +71,11 @@ func emptyOrErrorC(err error) *C.char {
 		return C.CString("")
 	}
 	log.Error(err.Error())
-	str := C.CString(err.Error())
-	defer C.free(unsafe.Pointer(str))
-	return str
+	return C.CString(err.Error())
 }
+
+//export coreAuthVersion
+func coreAuthVersion() C.int { return 1 }
 
 //export setup
 func setup(baseDir *C.char, workingDir *C.char, tempDir *C.char, mode C.int, listen *C.char, secret *C.char, statusPort C.longlong, debug bool) *C.char {
@@ -92,6 +94,10 @@ func setup(baseDir *C.char, workingDir *C.char, tempDir *C.char, mode C.int, lis
 		Mode:              hcore.SetupMode(mode),
 		Listen:            C.GoString(listen),
 		Secret:            C.GoString(secret),
+	}
+
+	if params.Mode == hcore.SetupMode_GRPC_NORMAL_INSECURE && params.Secret == "" {
+		return emptyOrErrorC(errors.New("desktop core requires a secret"))
 	}
 
 	err := hcore.Setup(&params, nil)
