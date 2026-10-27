@@ -105,7 +105,7 @@ func Setup(params *SetupRequest, platformInterface libbox.PlatformInterface) err
 		statusPropagationPort = int64(params.FlutterStatusPort)
 	// case SetupMode_GRPC_BACKGROUND_INSECURE:
 	default:
-		_, err := StartGrpcServerByMode(params.Listen, params.Mode)
+		_, err := StartGrpcServerByMode(params.Listen, params.Mode, params.Secret)
 		if err != nil {
 			return err
 		}
@@ -173,7 +173,7 @@ var (
 )
 
 // StartGrpcServerByMode starts a gRPC server on the specified address with mTLS.
-func StartGrpcServerByMode(listenAddressG string, mode SetupMode) (*grpc.Server, error) {
+func StartGrpcServerByMode(listenAddressG string, mode SetupMode, secret string) (*grpc.Server, error) {
 	// Validate the listen address
 	if !strings.Contains(listenAddressG, ":") {
 		return nil, fmt.Errorf("invalid listen address (no port): %s", listenAddressG)
@@ -193,8 +193,9 @@ func StartGrpcServerByMode(listenAddressG string, mode SetupMode) (*grpc.Server,
 		return grpcServer[mode], nil
 	}
 
+	var server *grpc.Server
 	if mode == SetupMode_GRPC_BACKGROUND_INSECURE || mode == SetupMode_GRPC_NORMAL_INSECURE {
-		grpcServer[mode] = grpc.NewServer()
+		server = grpc.NewServer(coreRPCAuthOptions(secret)...)
 	} else {
 		table := db.GetTable[hcommon.AppSettings]()
 		Log(LogLevel_DEBUG, LogType_CORE, table)
@@ -235,17 +236,19 @@ func StartGrpcServerByMode(listenAddressG string, mode SetupMode) (*grpc.Server,
 
 		// Create a new gRPC server with TLS credentials
 		creds := credentials.NewTLS(tlsConfig)
-		grpcServer[mode] = grpc.NewServer(grpc.Creds(creds))
+		server = grpc.NewServer(append(coreRPCAuthOptions(secret), grpc.Creds(creds))...)
 	}
 	// Register your gRPC service here
-	RegisterCoreServer(grpcServer[mode], &CoreService{})
-	hello.RegisterHelloServer(grpcServer[mode], &hello.HelloService{})
+	RegisterCoreServer(server, &CoreService{})
+	hello.RegisterHelloServer(server, &hello.HelloService{})
 	// Listen on the provided address
 	lis, err := net.Listen("tcp", listenAddressG)
 	if err != nil {
 		Log(LogLevel_ERROR, LogType_CORE, fmt.Sprintf("failed to listen on %s: %v\n", listenAddressG, err))
+		server.Stop()
 		return nil, err
 	}
+	grpcServer[mode] = server
 	Log(LogLevel_DEBUG, LogType_CORE, fmt.Sprintf("grpcServer started on %s\n", listenAddressG))
 	log.Info("Server listening on %s", listenAddressG)
 
@@ -255,7 +258,7 @@ func StartGrpcServerByMode(listenAddressG string, mode SetupMode) (*grpc.Server,
 			Log(LogLevel_FATAL, LogType_CORE, err.Error())
 			<-time.After(5 * time.Second)
 		})
-		if err := grpcServer[mode].Serve(lis); err != nil {
+		if err := server.Serve(lis); err != nil {
 			Log(LogLevel_DEBUG, LogType_CORE, fmt.Sprintf("failed to serve: %v\n", err))
 		}
 		Log(LogLevel_DEBUG, LogType_CORE, "Server stopped")
